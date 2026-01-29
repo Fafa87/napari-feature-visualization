@@ -11,6 +11,16 @@ from packaging import version
 
 from napari_feature_visualization.utils import ColormapChoices, get_df
 
+CATEGORY_LABELS = []
+
+def add_category_features(category_features: list[str]):
+    global CATEGORY_LABELS
+    for k in category_features:
+        if k not in CATEGORY_LABELS:
+            CATEGORY_LABELS.append(k)
+
+add_category_features(["UNIQUE_LABEL", "index", "SELECTED"])
+
 
 def check_default_label_column(df):
     if "label" in df:
@@ -73,13 +83,21 @@ def _init(widget):
             df = pd.DataFrame(widget.label_layer.value.properties)
 
         try:
-            quantiles = (0.01, 0.99)
-            widget.lower_contrast_limit.value = df[event].quantile(
-                quantiles[0]
-            )
-            widget.upper_contrast_limit.value = df[event].quantile(
-                quantiles[1]
-            )
+            if widget.feature.value in CATEGORY_LABELS:
+                widget.lower_contrast_limit.hide()
+                widget.upper_contrast_limit.hide()
+                widget.Colormap.hide()
+            else:
+                widget.lower_contrast_limit.show()
+                widget.upper_contrast_limit.show()
+                widget.Colormap.show()
+                quantiles = (0.01, 0.99)
+                widget.lower_contrast_limit.value = df[event].quantile(
+                    quantiles[0]
+                )
+                widget.upper_contrast_limit.value = df[event].quantile(
+                    quantiles[1]
+                )
         except KeyError:
             # Don't update the limits if a feature name is entered that isn't in the dataframe
             pass
@@ -127,24 +145,28 @@ def feature_vis(
             "visualize_feature_on_label_layer function is not designed for "
             "this."
         )
-    # Rescale feature between 0 & 1 to make a colormap
-    site_df["feature_scaled"] = (site_df[feature] - lower_contrast_limit) / (
-        upper_contrast_limit - lower_contrast_limit
-    )
-    # Cap the measurement between 0 & 1
-    site_df.loc[site_df["feature_scaled"] < 0, "feature_scaled"] = 0
-    site_df.loc[site_df["feature_scaled"] > 1, "feature_scaled"] = 1
 
-    colors = matplotlib.colormaps.get_cmap(Colormap.value)(
-        site_df["feature_scaled"]
+    if feature in CATEGORY_LABELS:
+        color_map_name = "tab20"
+        feature_data = np.array(site_df[feature].astype('category').cat.codes) % 20
+    else:
+        # Rescale feature between 0 & 1 to make a colormap
+        site_df["feature_scaled"] = (site_df[feature] - lower_contrast_limit) / (
+            upper_contrast_limit - lower_contrast_limit
+        )
+        # Cap the measurement between 0 & 1
+        site_df.loc[site_df["feature_scaled"] < 0, "feature_scaled"] = 0
+        site_df.loc[site_df["feature_scaled"] > 1, "feature_scaled"] = 1
+
+        color_map_name = Colormap.value
+        feature_data = site_df["feature_scaled"]
+
+    colors = matplotlib.colormaps.get_cmap(color_map_name)(
+        feature_data
     )
 
     # Create an array where the index is the label value and the value is
     # the feature value
-    properties_array = np.zeros(site_df["label"].max() + 1)
-    properties_array[site_df["label"]] = site_df[feature]
-    label_properties = {feature: np.round(properties_array, decimals=2)}
-
     colormap = dict(zip(site_df["label"], colors))
     # Show missing objects as black
     colormap[None] = [0.0, 0.0, 0.0, 1.0]
@@ -160,6 +182,9 @@ def feature_vis(
 
     if load_features_from == "CSV File":
         try:
+            properties_array = np.zeros(site_df["label"].max() + 1)
+            properties_array[site_df["label"]] = site_df[feature]
+            label_properties = {feature: np.round(properties_array, decimals=2)}
             label_layer.properties = label_properties
         except UnboundLocalError:
             # If a napari version before 0.4.8 is used, this can't be displayed yet
