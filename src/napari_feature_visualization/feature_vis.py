@@ -12,6 +12,11 @@ from packaging import version
 from napari_feature_visualization.utils import ColormapChoices, get_df
 
 CATEGORY_LABELS = []
+SELECTED_LABEL = "SELECTED"
+
+CATEGORY_SPECIFICS = {
+    SELECTED_LABEL: {"colormap": "Set1", "skip_zeros": True}
+}
 
 def add_category_features(category_features: list[str]):
     global CATEGORY_LABELS
@@ -19,7 +24,13 @@ def add_category_features(category_features: list[str]):
         if k not in CATEGORY_LABELS:
             CATEGORY_LABELS.append(k)
 
-add_category_features(["UNIQUE_LABEL", "index", "SELECTED"])
+def get_category_specifics(feature):
+    if feature in CATEGORY_SPECIFICS:
+        return CATEGORY_SPECIFICS[feature]
+    else:
+        return {"colormap": "tab20", "skip_zeros": False}
+
+add_category_features(["UNIQUE_LABEL", "index", SELECTED_LABEL])
 
 
 def check_default_label_column(df):
@@ -147,8 +158,16 @@ def feature_vis(
         )
 
     if feature in CATEGORY_LABELS:
-        color_map_name = "tab20"
+        specifics = get_category_specifics(feature)
+        color_map_name = specifics["colormap"]
+        skip_zeros = specifics["skip_zeros"] or True
+        zero_data = site_df[feature] == 0
         feature_data = np.array(site_df[feature].astype('category').cat.codes) % 20
+        colors = matplotlib.colormaps.get_cmap(color_map_name)(
+            feature_data
+        ).copy()
+        if skip_zeros:
+            colors[zero_data] = [0.0, 0.0, 0.0, 0.0]
     else:
         # Rescale feature between 0 & 1 to make a colormap
         site_df["feature_scaled"] = (site_df[feature] - lower_contrast_limit) / (
@@ -161,9 +180,9 @@ def feature_vis(
         color_map_name = Colormap.value
         feature_data = site_df["feature_scaled"]
 
-    colors = matplotlib.colormaps.get_cmap(color_map_name)(
-        feature_data
-    )
+        colors = matplotlib.colormaps.get_cmap(color_map_name)(
+            feature_data
+        )
 
     # Create an array where the index is the label value and the value is
     # the feature value
